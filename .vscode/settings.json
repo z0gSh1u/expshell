@@ -1,0 +1,6 @@
+{
+  "C_Cpp.default.includePath": [
+    "\\\\192.168.240.128/samba/usr/include",
+    "\\\\192.168.240.128/samba/usr/local/include"
+  ], // change the ip to yours if you are using samba
+}
