@@ -1,2 +1,2 @@
 # expshell
-wtf is this?
+README wip.

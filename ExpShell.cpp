@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <grp.h>
 #include <iostream>
+#include <map>
 #include <pwd.h>
 #include <sstream>
 #include <string>
@@ -20,10 +21,13 @@
 
 using namespace std;
 
+// some constants
 const string WHITE_SPACE = " \t\r\n";
 const string SYMBOL = "|<>";
 
 #define MAX_ARGV_LEN 128
+#define SHOW_PANIC true
+#define SHOW_WAIT_PANIC false
 
 // OFLAG for file open
 #define REDIR_IN_OFLAG O_RDONLY
@@ -31,12 +35,27 @@ const string SYMBOL = "|<>";
 
 // fd
 int pipe_fd[2]; // r/w pipe file descriptor
-int redir_in_fd;
-int redir_out_fd;
+// fd for redirection is stored on cmd themselves
 
 // this buffer is used for C-style functions to get a string
 #define CHAR_BUF_SIZE 1024
 char char_buf[CHAR_BUF_SIZE];
+
+// record home directory for `cd` and `cd ~`
+string home_dir;
+
+// command alias
+map<string, string> alias_map;
+// modify this function to add more aliases
+void init_alias() { alias_map.insert(pair<string, string>("ll", "ls -l")); }
+
+// panic
+void panic(string hint, bool exit_ = false, int exit_code = 0) {
+  if (SHOW_PANIC)
+    cerr << "[!ExpShell panic]: " << hint << endl;
+  if (exit_)
+    exit(exit_code);
+}
 
 // ==========================
 // string utilities
@@ -58,6 +77,30 @@ vector<string> string_split(const string &s, const string &delims) {
   return vec;
 }
 
+// this split function will protect string inside quote
+vector<string> string_split_protect(const string &str, const string &delims) {
+  vector<string> vec;
+  string tmp = "";
+  for (int i = 0; i < str.length(); i++) {
+    if (is_white_space(str[i])) {
+      vec.push_back(tmp);
+      tmp = "";
+    } else if (str[i] == '\"') {
+      i++; // skip "
+      while (str[i] != '\"' && i < str.length()) {
+        tmp += str[i];
+        i++;
+      }
+      if (i == str.length())
+        panic("unclosed quote");
+    } else
+      tmp += str[i];
+  }
+  if (tmp.length() > 0)
+    vec.push_back(tmp);
+  return vec;
+}
+
 string string_split_last(const string &s, const string &delims) {
   vector<string> split_res = string_split(s, delims);
   return split_res.at(split_res.size() - 1);
@@ -72,21 +115,11 @@ string trim(const string &s) {
   if (s.length() == 0)
     return string(s);
   int p = 0, q = s.length() - 1;
-  while (is_white_space(s[p++]))
-    ;
-  while (is_white_space(s[q--]))
-    ;
-  return s.substr(p, q - p);
-}
-
-string join(vector<string> &vec, const string &with = " ") {
-  string res = "";
-  for (vector<string>::iterator it = vec.begin(); it < vec.end(); it++) {
-    res += (*it);
-    if (it != vec.end() - 1)
-      res += with;
-  }
-  return res;
+  while (is_white_space(s[p]))
+    p++;
+  while (is_white_space(s[q]))
+    q--;
+  return s.substr(p, q - p + 1);
 }
 
 string read_line() {
@@ -107,8 +140,11 @@ void show_command_prompt() {
   getcwd(char_buf, CHAR_BUF_SIZE);
   string cwd(char_buf);
   // consider home path (~)
-  if ((username == "root" && cwd == "/root") /* home for root */ ||
-      cwd == "/home/" + username /* home for other user*/)
+  if (username == "root")
+    home_dir = "/root"; // home for root
+  else
+    home_dir = "/home/" + username; // home for other user
+  if (cwd == home_dir)
     cwd = "~";
   else if (cwd != "/") {
     // consider root path (/)
@@ -119,7 +155,6 @@ void show_command_prompt() {
   gethostname(char_buf, CHAR_BUF_SIZE);
   string hostname(char_buf);
   // sometimes, hostname is like localhost.locald.xxx here, should split it
-  cout << "!" << hostname << endl;
   hostname = string_split_first(hostname, ".");
   // output
   cout << "[" << username << "@" << hostname << " " << cwd << "]> ";
@@ -128,12 +163,6 @@ void show_command_prompt() {
 // ==========================
 // proxy functions
 // ==========================
-void panic(string hint, bool exit_ = false, int exit_code = 0) {
-  cerr << "[!ExpShell panic]: " << hint << endl;
-  if (exit_)
-    exit(exit_code);
-}
-
 // wrapped fork function that panics
 int fork_wrap() {
   int pid = fork();
@@ -168,10 +197,11 @@ int open_wrap(const char *file, int oflag) {
 
 // panic for wait status
 void check_wait_status(int &wait_status) {
-  if (WIFEXITED(wait_status) != 0) {
+  if (WIFEXITED(wait_status) == 0) { // means abnormal exit
     char buf[8];
     sprintf(buf, "%d", WEXITSTATUS(wait_status));
-    panic("child exit with code " + string(buf));
+    if (SHOW_WAIT_PANIC)
+      panic("child exit with code " + string(buf));
   }
 }
 
@@ -235,12 +265,12 @@ public:
 // parse seg as is exec_cmd
 cmd *parse_exec_cmd(string seg) {
   seg = trim(seg);
-  vector<string> argv = string_split(seg, WHITE_SPACE);
+  vector<string> argv = string_split_protect(seg, WHITE_SPACE);
   return new exec_cmd(argv);
 }
 
 // divide-and-conquer
-// ** test cases: **
+// **test cases:**
 // ls -a < a.txt | grep linux > b.txt
 // some_bin "hello world" > b.txt > c.txt
 cmd *parse(string line) {
@@ -254,16 +284,17 @@ cmd *parse(string line) {
       int j = i + 1;
       while (j < line.length() && !is_symbol(line[j]))
         j++;
-      string file = trim(line.substr(i, j - i));
+      string file = trim(line.substr(i + 1, j - i));
       cur_cmd = new redirect_cmd(line[i] == '<' ? CMD_TYPE_REDIR_IN
                                                 : CMD_TYPE_REDIR_OUT,
-                                 lhs, file, -1);
+                                 lhs, file, -1); // fd wait for filling
       i = j;
     } else if (line[i] == '|') {
-      cmd *rhs = parse(line.substr(i + 1));
+      cmd *rhs = parse(line.substr(i + 1)); // recursive
       if (cur_cmd->type == CMD_TYPE_NULL)
         cur_cmd = parse_exec_cmd(cur_read);
       cur_cmd = new pipe_cmd(cur_cmd, rhs);
+      return cur_cmd;
     } else
       cur_read += line[i++];
   }
@@ -275,10 +306,17 @@ cmd *parse(string line) {
 
 // deal with builtin command
 // returns: 0-nothing_done, 1-success, -1-failure
-int process_builtin_command(const string &line) {
+int process_builtin_command(string line) {
   // 1 - cd
-  // TODO: what about `cd` and `cd ~/xxx`?
-  if (line.substr(0, 2) == "cd") {
+  if (line == "cd") {
+    chdir(home_dir.c_str()); // single cd means cd ~
+    return 1;
+  } else if (line.substr(0, 2) == "cd") {
+    // replace ~ into home_dir
+    string arg1 = string_split(line, WHITE_SPACE)[1];
+    if (arg1.find("~") == 0)
+      line = "cd " + home_dir + arg1.substr(1);
+    // change directory
     int chdir_ret = chdir(trim(line.substr(2)).c_str());
     if (chdir_ret < 0) {
       panic("chdir failed");
@@ -287,8 +325,10 @@ int process_builtin_command(const string &line) {
       return 1; // successfully processed
   }
   // 2 - quit
-  if (line.substr(0, 4) == "quit")
+  if (line == "quit") {
+    cout << "Bye from ExpShell." << endl;
     exit(0);
+  }
   return 0; // nothing done
 }
 
@@ -297,15 +337,31 @@ void run_cmd(cmd *cmd_) {
   switch (cmd_->type) {
   case CMD_TYPE_EXEC: {
     exec_cmd *ecmd = static_cast<exec_cmd *>(cmd_);
+    // process alias
+    if (alias_map.count(ecmd->argv[0]) != 0) {
+      vector<string> arg0_replace =
+          string_split(alias_map.at(ecmd->argv[0]), WHITE_SPACE);
+      ecmd->argv.erase(ecmd->argv.begin());
+      for (vector<string>::reverse_iterator it = arg0_replace.rbegin();
+           it < arg0_replace.rend(); it++) {
+        ecmd->argv.insert(ecmd->argv.begin(), (*it));
+      }
+    }
     // prepare vector<string> for execvp
-    char *argv_c_str[MAX_ARGV_LEN];
-    int i = 0;
-    for (; i < ecmd->argv.size(); i++)
-      strcpy(argv_c_str[i], ecmd->argv[i].c_str());
-    argv_c_str[i] = NULL; // null terminator
+    vector<char *> argv_c_str;
+    for (int i = 0; i < ecmd->argv.size(); i++) {
+      string arg_trim = trim(ecmd->argv[i]);
+      if (arg_trim.length() > 0) { // skip blank string
+        char *tmp = new char[MAX_ARGV_LEN];
+        strcpy(tmp, arg_trim.c_str());
+        argv_c_str.push_back(tmp);
+      }
+    }
+    argv_c_str.push_back(NULL);
+    char **argv_c_arr = &argv_c_str[0];
     // vscode made wrong marco expansion here
-    // second argument take char** is ok rather than char *const (*(*)())[]
-    int execvp_ret = execvp(argv_c_str[0], argv_c_str) < 0;
+    // second argument is ok for char** rather than char *const (*(*)())[]
+    int execvp_ret = execvp(argv_c_arr[0], argv_c_arr);
     if (execvp_ret < 0)
       panic("execvp failed");
     break;
@@ -316,18 +372,18 @@ void run_cmd(cmd *cmd_) {
     // fork twice to run lhs and rhs of pipe
     if (fork_wrap() == 0) {
       // i'm a child, let's satisfy lhs
+      close(pipe_fd[0]);
       dup2_wrap(pipe_fd[1], fileno(stdout)); // lhs_stdout -> pipe_write
       // close the original ones
-      close(pipe_fd[0]);
-      close(pipe_fd[1]);
       run_cmd(pcmd->left);
+      close(pipe_fd[1]);
     }
     if (fork_wrap() == 0) {
       // i'm also a child, let's satisfy rhs
-      dup2_wrap(pipe_fd[0], fileno(stdin)); // pipe_read -> rhs_stdin
-      close(pipe_fd[0]);
       close(pipe_fd[1]);
+      dup2_wrap(pipe_fd[0], fileno(stdin)); // pipe_read -> rhs_stdin
       run_cmd(pcmd->right);
+      close(pipe_fd[0]);
     }
     // really good. now we have lhs_stdout -> pipe -> rhs_stdin
     // if fork > 0, then i'm the father
@@ -344,7 +400,6 @@ void run_cmd(cmd *cmd_) {
   case CMD_TYPE_REDIR_IN:
   case CMD_TYPE_REDIR_OUT: {
     redirect_cmd *rcmd = static_cast<redirect_cmd *>(cmd_);
-
     if (fork_wrap() == 0) {
       // i'm a child, let's satisfy the file being redirected to (or from)
       rcmd->fd = open_wrap(rcmd->file.c_str(), rcmd->type == CMD_TYPE_REDIR_IN
@@ -353,6 +408,7 @@ void run_cmd(cmd *cmd_) {
       dup2_wrap(rcmd->fd, rcmd->type == CMD_TYPE_REDIR_IN ? fileno(stdin)
                                                           : fileno(stdout));
       run_cmd(rcmd->cmd_);
+      close(rcmd->fd);
     }
     // if fork > 0, then i'm the father
     // let's wait for my children
@@ -364,12 +420,12 @@ void run_cmd(cmd *cmd_) {
   default:
     panic("unknown or null cmd type", true, 1);
   }
-  exit(0);
 }
 
 // entry method of the shell
 int main() {
   system("stty erase ^H"); // fix ^H when using backspace on SSH
+  init_alias();            // support command alias
   string line;
   int wait_status;
   while (true) {
@@ -379,8 +435,11 @@ int main() {
     if (process_builtin_command(line) > 0)
       continue;
     // fork a new me to execute the typed command
-    if (fork_wrap() == 0)
-      run_cmd(parse(line));
+    if (fork_wrap() == 0) {
+      cmd *cmd_ = parse(line);
+      run_cmd(cmd_);
+      exit(0); // child exit
+    }
     wait(&wait_status);
     check_wait_status(wait_status);
   }
