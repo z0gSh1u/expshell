@@ -94,7 +94,7 @@ command_prompt 是在每行最开始显示的一段与用户名、路径等相�
   - 调用 `exit(0)` 即可实现 quit
   - 对于 cd，考虑如下情况
     - 无参 cd 等价于 `cd ~`
-    - 对于形如 `cd ~/some_path` 的命令，使用 `home_dir ` 替换 `~`
+    - 对于形如 `cd ~/some_path` 的命令，使用 `home_dir` 替换 `~`
     - 其他情况调用 `chdir` 即可
 
 ### 执行命令
@@ -121,7 +121,7 @@ command_prompt 是在每行最开始显示的一段与用户名、路径等相�
     - 父进程 fork 两次
     - child1 关读端，重定向写端，执行命令，关写端
     - child2 关写端，重定向读端，执行命令，关读端
-    - 父进程 wait，并确保管道 fd 回收
+    - 父进程关闭读、写端，并 wait
 
 - 对于 redirect_cmd
 
