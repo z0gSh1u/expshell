@@ -19,7 +19,7 @@
 - 引号引起的参数（如 `$ some_program "hello, world"` ）
 - 重定向（\>、\< ）
 - 管道（|）
-- 内建指令（如 cd、quit）
+- 内建指令（如 cd、history、quit）
 - 指令别名（如 ll → ls -l）
 - 家目录（~）
 
@@ -89,9 +89,10 @@ command_prompt 是在每行最开始显示的一段与用户名、路径等相�
 
 - 解析内建命令
 
-  主要支持 cd 和 quit 命令。
+  主要支持 cd 、history 和 quit 命令。
 
   - 调用 `exit(0)` 即可实现 quit
+  - history 命令根据记录打印即可
   - 对于 cd，考虑如下情况
     - 无参 cd 等价于 `cd ~`
     - 对于形如 `cd ~/some_path` 的命令，使用 `home_dir` 替换 `~`

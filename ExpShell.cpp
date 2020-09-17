@@ -49,6 +49,9 @@ map<string, string> alias_map;
 // modify this function to add more aliases
 void init_alias() { alias_map.insert(pair<string, string>("ll", "ls -l")); }
 
+// history
+vector<string> cmd_history;
+
 // panic
 void panic(string hint, bool exit_ = false, int exit_code = 0) {
   if (SHOW_PANIC)
@@ -329,6 +332,12 @@ int process_builtin_command(string line) {
     cout << "Bye from ExpShell." << endl;
     exit(0);
   }
+  // 3 - history
+  if (line == "history") {
+    for (int i = cmd_history.size() - 1; i >= 0; i--)
+      cout << "\t" << i << "\t" << cmd_history.at(i) << endl;
+    return 1;
+  }
   return 0; // nothing done
 }
 
@@ -431,6 +440,7 @@ int main() {
   while (true) {
     show_command_prompt();
     line = trim(read_line());
+    cmd_history.push_back(line);
     // deal with builtin commands
     if (process_builtin_command(line) > 0)
       continue;
