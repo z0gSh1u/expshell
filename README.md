@@ -23,6 +23,10 @@
 - 指令别名（如 ll → ls -l）
 - 家目录（~）
 
+## 运行截图
+
+![run_pic](https://i.loli.net/2020/09/17/ACyfLkH49c2dlBQ.png)
+
 ## 如何写一个简单的 Shell
 
 这里简单介绍写 Shell 时比较关键的一些部分，具体请查看源代码。
