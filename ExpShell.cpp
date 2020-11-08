@@ -433,7 +433,7 @@ void run_cmd(cmd *cmd_) {
 
 // entry method of the shell
 int main() {
-  system("stty erase ^H"); // fix ^H when using backspace on SSH
+  // system("stty erase ^H"); // fix ^H when using backspace on SSH // See Issue #1
   init_alias();            // support command alias
   string line;
   int wait_status;
