@@ -25,7 +25,7 @@
 
 ## 运行截图
 
-![run_pic](https://i.loli.net/2020/09/17/ACyfLkH49c2dlBQ.png)
+![](https://gitee.com/z0gSh1u/image-static/raw/master/picgo-2021/20210518225307.png)
 
 ## 如何写一个简单的 Shell
 
