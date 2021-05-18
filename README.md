@@ -119,7 +119,7 @@ command_prompt 是在每行最开始显示的一段与用户名、路径等相�
 
   - 这张图很好地说明了父子进程使用管道通信的方法
 
-    ![pipe_and_close](https://i.loli.net/2020/09/16/BdNUL7pRGfF2rgD.png)
+    ![](https://gitee.com/z0gSh1u/image-static/raw/master/picgo-2021/BdNUL7pRGfF2rgD.png)
 
   - 依据上图，不难类比出兄弟进程进行 IPC 的方法如下
     - 父进程 pipe
